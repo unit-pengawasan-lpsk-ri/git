@@ -2483,7 +2483,7 @@ typedef struct {
 	int newmode;
 } _startupinfo;
 
-extern int __wgetmainargs(int *argc, wchar_t ***argv, wchar_t ***env, int glob,
+int __wgetmainargs(int *argc, wchar_t ***argv, wchar_t ***env, int glob,
 		_startupinfo *si);
 
 static NORETURN void die_startup(void)
