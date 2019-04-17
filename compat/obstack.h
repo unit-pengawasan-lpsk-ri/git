@@ -184,10 +184,10 @@ struct obstack		/* control current object in current chunk */
 
 void _obstack_newchunk (struct obstack *, int);
 int _obstack_begin (struct obstack *, int, int,
-			    void *(*) (long), void (*) (void *));
+		    void *(*) (long), void (*) (void *));
 int _obstack_begin_1 (struct obstack *, int, int,
-			     void *(*) (void *, long),
-			     void (*) (void *, void *), void *);
+		      void *(*) (void *, long),
+		      void (*) (void *, void *), void *);
 int _obstack_memory_used (struct obstack *);
 
 void obstack_free (struct obstack *, void *);
