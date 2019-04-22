@@ -57,7 +57,7 @@ struct pollfd
 
 typedef unsigned long nfds_t;
 
-extern int poll (struct pollfd *pfd, nfds_t nfd, int timeout);
+int poll (struct pollfd *pfd, nfds_t nfd, int timeout);
 
 /* Define INFTIM only if doing so conforms to POSIX.  */
 #if !defined (_POSIX_C_SOURCE) && !defined (_XOPEN_SOURCE)

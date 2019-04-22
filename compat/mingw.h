@@ -11,7 +11,7 @@ typedef _sigset_t sigset_t;
 #undef _POSIX_THREAD_SAFE_FUNCTIONS
 #endif
 
-extern int mingw_core_config(const char *var, const char *value, void *cb);
+int mingw_core_config(const char *var, const char *value, void *cb);
 #define platform_core_config mingw_core_config
 
 /*
@@ -449,7 +449,7 @@ static inline void convert_slashes(char *path)
 			*path = '/';
 }
 #define PATH_SEP ';'
-extern char *mingw_query_user_email(void);
+char *mingw_query_user_email(void);
 #define query_user_email mingw_query_user_email
 #if !defined(__MINGW64_VERSION_MAJOR) && (!defined(_MSC_VER) || _MSC_VER < 1800)
 #define PRIuMAX "I64u"
@@ -586,4 +586,4 @@ static int mingw_main(c,v)
 /*
  * Used by Pthread API implementation for Windows
  */
-extern int err_win_to_posix(DWORD winerr);
+int err_win_to_posix(DWORD winerr);
