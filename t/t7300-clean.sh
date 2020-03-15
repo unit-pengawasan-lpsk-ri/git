@@ -669,4 +669,26 @@ test_expect_success 'git clean -d skips untracked dirs containing ignored files'
 	test_path_is_missing foo/b/bb
 '
 
+test_expect_success MINGW 'handle clean & core.longpaths = false nicely' '
+	test_config core.longpaths false &&
+	a50=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa &&
+	mkdir -p $a50$a50/$a50$a50/$a50$a50 &&
+	: >"$a50$a50/test.txt" 2>"$a50$a50/$a50$a50/$a50$a50/test.txt" &&
+	# create a temporary outside the working tree to hide from "git clean"
+	test_must_fail git clean -xdf 2>.git/err &&
+	# grepping for a strerror string is unportable but it is OK here with
+	# MINGW prereq
+	test_i18ngrep "too long" .git/err
+'
+
+test_expect_success MINGW 'clean does not traverse mount points' '
+	mkdir target &&
+	>target/dont-clean-me &&
+	git init with-mountpoint &&
+	cmd //c "mklink /j with-mountpoint\\mountpoint target" &&
+	git -C with-mountpoint clean -dfx &&
+	test_path_is_missing with-mountpoint/mountpoint &&
+	test_path_is_file target/dont-clean-me
+'
+
 test_done

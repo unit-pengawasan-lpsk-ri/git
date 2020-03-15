@@ -7,6 +7,7 @@ enum parse_opt_type {
 	OPTION_ARGUMENT,
 	OPTION_GROUP,
 	OPTION_NUMBER,
+	OPTION_ALIAS,
 	/* options with no arguments */
 	OPTION_BIT,
 	OPTION_NEGBIT,
@@ -136,10 +137,12 @@ struct option {
 #define OPT_BOOL_F(s, l, v, h, f)   OPT_SET_INT_F(s, l, v, h, 1, f)
 #define OPT_CALLBACK_F(s, l, v, a, h, f, cb)			\
 	{ OPTION_CALLBACK, (s), (l), (v), (a), (h), (f), (cb) }
+#define OPT_STRING_F(s, l, v, a, h, f)   { OPTION_STRING,  (s), (l), (v), (a), (h), (f) }
+#define OPT_INTEGER_F(s, l, v, h, f)     { OPTION_INTEGER, (s), (l), (v), N_("n"), (h), (f) }
 
 #define OPT_END()                   { OPTION_END }
-#define OPT_ARGUMENT(l, h)          { OPTION_ARGUMENT, 0, (l), NULL, NULL, \
-				      (h), PARSE_OPT_NOARG}
+#define OPT_ARGUMENT(l, v, h)       { OPTION_ARGUMENT, 0, (l), (v), NULL, \
+				      (h), PARSE_OPT_NOARG, NULL, 1 }
 #define OPT_GROUP(h)                { OPTION_GROUP, 0, NULL, NULL, NULL, (h) }
 #define OPT_BIT(s, l, v, h, b)      OPT_BIT_F(s, l, v, h, b, 0)
 #define OPT_BITOP(s, l, v, h, set, clear) { OPTION_BITOP, (s), (l), (v), NULL, (h), \
@@ -154,10 +157,10 @@ struct option {
 				      (h), PARSE_OPT_NOARG | PARSE_OPT_HIDDEN, NULL, 1}
 #define OPT_CMDMODE(s, l, v, h, i)  { OPTION_CMDMODE, (s), (l), (v), NULL, \
 				      (h), PARSE_OPT_NOARG|PARSE_OPT_NONEG, NULL, (i) }
-#define OPT_INTEGER(s, l, v, h)     { OPTION_INTEGER, (s), (l), (v), N_("n"), (h) }
+#define OPT_INTEGER(s, l, v, h)     OPT_INTEGER_F(s, l, v, h, 0)
 #define OPT_MAGNITUDE(s, l, v, h)   { OPTION_MAGNITUDE, (s), (l), (v), \
 				      N_("n"), (h), PARSE_OPT_NONEG }
-#define OPT_STRING(s, l, v, a, h)   { OPTION_STRING,  (s), (l), (v), (a), (h) }
+#define OPT_STRING(s, l, v, a, h)   OPT_STRING_F(s, l, v, a, h, 0)
 #define OPT_STRING_LIST(s, l, v, a, h) \
 				    { OPTION_CALLBACK, (s), (l), (v), (a), \
 				      (h), 0, &parse_opt_string_list }
@@ -180,6 +183,9 @@ struct option {
 	{ OPTION_CALLBACK, (s), (l), NULL, NULL, \
 	  N_("no-op (backward compatibility)"),		\
 	  PARSE_OPT_HIDDEN | PARSE_OPT_NOARG, parse_opt_noop_cb }
+
+#define OPT_ALIAS(s, l, source_long_name) \
+	{ OPTION_ALIAS, (s), (l), (source_long_name) }
 
 /*
  * parse_options() will filter out the processed options and leave the
@@ -256,6 +262,8 @@ struct parse_opt_ctx_t {
 	const char *opt;
 	int flags;
 	const char *prefix;
+	const char **alias_groups; /* must be in groups of 3 elements! */
+	struct option *updated_options;
 };
 
 void parse_options_start(struct parse_opt_ctx_t *ctx,
@@ -268,6 +276,7 @@ int parse_options_step(struct parse_opt_ctx_t *ctx,
 
 int parse_options_end(struct parse_opt_ctx_t *ctx);
 
+struct option *parse_options_dup(const struct option *a);
 struct option *parse_options_concat(struct option *a, struct option *b);
 
 /*----- some often used options -----*/
@@ -275,12 +284,18 @@ int parse_opt_abbrev_cb(const struct option *, const char *, int);
 int parse_opt_expiry_date_cb(const struct option *, const char *, int);
 int parse_opt_color_flag_cb(const struct option *, const char *, int);
 int parse_opt_verbosity_cb(const struct option *, const char *, int);
+/* value is struct oid_array* */
 int parse_opt_object_name(const struct option *, const char *, int);
+/* value is struct object_id* */
+int parse_opt_object_id(const struct option *, const char *, int);
 int parse_opt_commits(const struct option *, const char *, int);
+int parse_opt_commit(const struct option *, const char *, int);
 int parse_opt_tertiary(const struct option *, const char *, int);
 int parse_opt_string_list(const struct option *, const char *, int);
 int parse_opt_noop_cb(const struct option *, const char *, int);
-int parse_opt_unknown_cb(struct parse_opt_ctx_t *ctx, const struct option *, const char *, int);
+enum parse_opt_result parse_opt_unknown_cb(struct parse_opt_ctx_t *ctx,
+					   const struct option *,
+					   const char *, int);
 int parse_opt_passthru(const struct option *, const char *, int);
 int parse_opt_passthru_argv(const struct option *, const char *, int);
 
@@ -314,5 +329,6 @@ int parse_opt_passthru_argv(const struct option *, const char *, int);
 #define OPT_NO_CONTAINS(v, h) _OPT_CONTAINS_OR_WITH("no-contains", v, h, PARSE_OPT_NONEG)
 #define OPT_WITH(v, h) _OPT_CONTAINS_OR_WITH("with", v, h, PARSE_OPT_HIDDEN | PARSE_OPT_NONEG)
 #define OPT_WITHOUT(v, h) _OPT_CONTAINS_OR_WITH("without", v, h, PARSE_OPT_HIDDEN | PARSE_OPT_NONEG)
+#define OPT_CLEANUP(v) OPT_STRING(0, "cleanup", v, N_("mode"), N_("how to strip spaces and #comments from message"))
 
 #endif

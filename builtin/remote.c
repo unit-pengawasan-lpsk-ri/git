@@ -1407,7 +1407,7 @@ static int update(int argc, const char **argv)
 	return retval;
 }
 
-static int remove_all_fetch_refspecs(const char *remote, const char *key)
+static int remove_all_fetch_refspecs(const char *key)
 {
 	return git_config_set_multivar_gently(key, NULL, NULL, 1);
 }
@@ -1437,7 +1437,7 @@ static int set_remote_branches(const char *remotename, const char **branches,
 	if (!remote_is_configured(remote, 1))
 		die(_("No such remote '%s'"), remotename);
 
-	if (!add_mode && remove_all_fetch_refspecs(remotename, key.buf)) {
+	if (!add_mode && remove_all_fetch_refspecs(key.buf)) {
 		strbuf_release(&key);
 		return 1;
 	}
@@ -1612,6 +1612,7 @@ int cmd_remote(int argc, const char **argv, const char *prefix)
 	};
 	int result;
 
+	git_config(git_default_config, NULL);
 	argc = parse_options(argc, argv, prefix, options, builtin_remote_usage,
 		PARSE_OPT_STOP_AT_NON_OPTION);
 

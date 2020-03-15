@@ -149,6 +149,20 @@ my %patch_modes = (
 		FILTER => undef,
 		IS_REVERSE => 0,
 	},
+	'worktree_head' => {
+		DIFF => 'diff-index -p',
+		APPLY => sub { apply_patch 'apply -R', @_ },
+		APPLY_CHECK => 'apply -R',
+		FILTER => undef,
+		IS_REVERSE => 1,
+	},
+	'worktree_nothead' => {
+		DIFF => 'diff-index -R -p',
+		APPLY => sub { apply_patch 'apply', @_ },
+		APPLY_CHECK => 'apply',
+		FILTER => undef,
+		IS_REVERSE => 0,
+	},
 );
 
 $patch_mode = 'stage';
@@ -160,10 +174,30 @@ sub run_cmd_pipe {
 		die "$^O does not support: @invalid\n" if @invalid;
 		my @args = map { m/ /o ? "\"$_\"": $_ } @_;
 		return qx{@args};
+	} elsif (($^O eq 'MSWin32' || $^O eq 'msys') && (scalar @_ > 200) &&
+			grep $_ eq '--', @_) {
+		use File::Temp qw(tempfile);
+		my ($fhargs, $filename) =
+			tempfile('git-args-XXXXXX', UNLINK => 1);
+
+		my $cmd = 'cat '.$filename.' | xargs -0 -s 20000 ';
+		while ($_[0] ne '--') {
+			$cmd = $cmd . shift(@_) . ' ';
+		}
+
+		shift(@_);
+		print $fhargs join("\0", @_);
+		close($fhargs);
+
+		my $fh = undef;
+		open($fh, '-|', $cmd) or die;
+		return <$fh>;
 	} else {
 		my $fh = undef;
 		open($fh, '-|', @_) or die;
-		return <$fh>;
+		my @out = <$fh>;
+		close $fh || die "Cannot close @_ ($!)";
+		return @out;
 	}
 }
 
@@ -210,7 +244,7 @@ my $status_head = sprintf($status_fmt, __('staged'), __('unstaged'), __('path'))
 	sub get_empty_tree {
 		return $empty_tree if defined $empty_tree;
 
-		$empty_tree = run_cmd_pipe(qw(git hash-object -t tree /dev/null));
+		($empty_tree) = run_cmd_pipe(qw(git hash-object -t tree /dev/null));
 		chomp $empty_tree;
 		return $empty_tree;
 	}
@@ -972,7 +1006,11 @@ sub coalesce_overlapping_hunks {
 			next;
 		}
 		if ($ofs_delta) {
-			$n_ofs += $ofs_delta;
+			if ($patch_mode_flavour{IS_REVERSE}) {
+				$o_ofs -= $ofs_delta;
+			} else {
+				$n_ofs += $ofs_delta;
+			}
 			$_->{TEXT}->[0] = format_hunk_header($o_ofs, $o_cnt,
 							     $n_ofs, $n_cnt);
 		}
@@ -1050,6 +1088,12 @@ marked for discarding."),
 	checkout_nothead => N__(
 "If the patch applies cleanly, the edited hunk will immediately be
 marked for applying."),
+	worktree_head => N__(
+"If the patch applies cleanly, the edited hunk will immediately be
+marked for discarding."),
+	worktree_nothead => N__(
+"If the patch applies cleanly, the edited hunk will immediately be
+marked for applying."),
 );
 
 sub recount_edited_hunk {
@@ -1103,7 +1147,7 @@ aborted and the hunk is left unchanged.
 EOF2
 	close $fh;
 
-	chomp(my $editor = run_cmd_pipe(qw(git var GIT_EDITOR)));
+	chomp(my ($editor) = run_cmd_pipe(qw(git var GIT_EDITOR)));
 	system('sh', '-c', $editor.' "$@"', $editor, $hunkfile);
 
 	if ($? != 0) {
@@ -1257,6 +1301,18 @@ d - do not discard this hunk or any of the later hunks in the file"),
 	checkout_nothead => N__(
 "y - apply this hunk to index and worktree
 n - do not apply this hunk to index and worktree
+q - quit; do not apply this hunk or any of the remaining ones
+a - apply this hunk and all later hunks in the file
+d - do not apply this hunk or any of the later hunks in the file"),
+	worktree_head => N__(
+"y - discard this hunk from worktree
+n - do not discard this hunk from worktree
+q - quit; do not discard this hunk or any of the remaining ones
+a - discard this hunk and all later hunks in the file
+d - do not discard this hunk or any of the later hunks in the file"),
+	worktree_nothead => N__(
+"y - apply this hunk to worktree
+n - do not apply this hunk to worktree
 q - quit; do not apply this hunk or any of the remaining ones
 a - apply this hunk and all later hunks in the file
 d - do not apply this hunk or any of the later hunks in the file"),
@@ -1420,6 +1476,16 @@ my %patch_update_prompt_modes = (
 		mode => N__("Apply mode change to index and worktree [y,n,q,a,d%s,?]? "),
 		deletion => N__("Apply deletion to index and worktree [y,n,q,a,d%s,?]? "),
 		hunk => N__("Apply this hunk to index and worktree [y,n,q,a,d%s,?]? "),
+	},
+	worktree_head => {
+		mode => N__("Discard mode change from worktree [y,n,q,a,d%s,?]? "),
+		deletion => N__("Discard deletion from worktree [y,n,q,a,d%s,?]? "),
+		hunk => N__("Discard this hunk from worktree [y,n,q,a,d%s,?]? "),
+	},
+	worktree_nothead => {
+		mode => N__("Apply mode change to worktree [y,n,q,a,d%s,?]? "),
+		deletion => N__("Apply deletion to worktree [y,n,q,a,d%s,?]? "),
+		hunk => N__("Apply this hunk to worktree [y,n,q,a,d%s,?]? "),
 	},
 );
 
@@ -1754,6 +1820,16 @@ sub process_args {
 					$patch_mode_revision = $arg;
 					$patch_mode = ($arg eq 'HEAD' ?
 						       'checkout_head' : 'checkout_nothead');
+					$arg = shift @ARGV or die __("missing --");
+				}
+			} elsif ($1 eq 'worktree') {
+				$arg = shift @ARGV or die __("missing --");
+				if ($arg eq '--') {
+					$patch_mode = 'checkout_index';
+				} else {
+					$patch_mode_revision = $arg;
+					$patch_mode = ($arg eq 'HEAD' ?
+						       'worktree_head' : 'worktree_nothead');
 					$arg = shift @ARGV or die __("missing --");
 				}
 			} elsif ($1 eq 'stage' or $1 eq 'stash') {

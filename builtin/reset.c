@@ -25,12 +25,15 @@
 #include "cache-tree.h"
 #include "submodule.h"
 #include "submodule-config.h"
+#include "strbuf.h"
+#include "quote.h"
 
 #define REFRESH_INDEX_DELAY_WARNING_IN_MS (2 * 1000)
 
 static const char * const git_reset_usage[] = {
 	N_("git reset [--mixed | --soft | --hard | --merge | --keep] [-q] [<commit>]"),
 	N_("git reset [-q] [<tree-ish>] [--] <paths>..."),
+	N_("EXPERIMENTAL: git reset [-q] [--stdin [-z]] [<tree-ish>]"),
 	N_("git reset --patch [<tree-ish>] [--] [<paths>...]"),
 	NULL
 };
@@ -79,13 +82,13 @@ static int reset_index(const struct object_id *oid, int reset_type, int quiet)
 		struct object_id head_oid;
 		if (get_oid("HEAD", &head_oid))
 			return error(_("You do not have a valid HEAD."));
-		if (!fill_tree_descriptor(desc + nr, &head_oid))
+		if (!fill_tree_descriptor(the_repository, desc + nr, &head_oid))
 			return error(_("Failed to find tree of HEAD."));
 		nr++;
 		opts.fn = twoway_merge;
 	}
 
-	if (!fill_tree_descriptor(desc + nr, oid)) {
+	if (!fill_tree_descriptor(the_repository, desc + nr, oid)) {
 		error(_("Failed to find tree of %s."), oid_to_hex(oid));
 		goto out;
 	}
@@ -284,7 +287,9 @@ static int git_reset_config(const char *var, const char *value, void *cb)
 int cmd_reset(int argc, const char **argv, const char *prefix)
 {
 	int reset_type = NONE, update_ref_status = 0, quiet = 0;
-	int patch_mode = 0, unborn;
+	int patch_mode = 0, nul_term_line = 0, read_from_stdin = 0, unborn;
+	char **stdin_paths = NULL;
+	int stdin_nr = 0, stdin_alloc = 0;
 	const char *rev;
 	struct object_id oid;
 	struct pathspec pathspec;
@@ -306,6 +311,10 @@ int cmd_reset(int argc, const char **argv, const char *prefix)
 		OPT_BOOL('p', "patch", &patch_mode, N_("select hunks interactively")),
 		OPT_BOOL('N', "intent-to-add", &intent_to_add,
 				N_("record only the fact that removed paths will be added later")),
+		OPT_BOOL('z', NULL, &nul_term_line,
+			N_("EXPERIMENTAL: paths are separated with NUL character")),
+		OPT_BOOL(0, "stdin", &read_from_stdin,
+				N_("EXPERIMENTAL: read paths from <stdin>")),
 		OPT_END()
 	};
 
@@ -315,6 +324,42 @@ int cmd_reset(int argc, const char **argv, const char *prefix)
 	argc = parse_options(argc, argv, prefix, options, git_reset_usage,
 						PARSE_OPT_KEEP_DASHDASH);
 	parse_args(&pathspec, argv, prefix, patch_mode, &rev);
+
+	if (read_from_stdin) {
+		strbuf_getline_fn getline_fn = nul_term_line ?
+			strbuf_getline_nul : strbuf_getline_lf;
+		int flags = PATHSPEC_PREFER_FULL;
+		struct strbuf buf = STRBUF_INIT;
+		struct strbuf unquoted = STRBUF_INIT;
+
+		if (patch_mode)
+			die(_("--stdin is incompatible with --patch"));
+
+		if (pathspec.nr)
+			die(_("--stdin is incompatible with path arguments"));
+
+		while (getline_fn(&buf, stdin) != EOF) {
+			if (!nul_term_line && buf.buf[0] == '"') {
+				strbuf_reset(&unquoted);
+				if (unquote_c_style(&unquoted, buf.buf, NULL))
+					die(_("line is badly quoted"));
+				strbuf_swap(&buf, &unquoted);
+			}
+			ALLOC_GROW(stdin_paths, stdin_nr + 1, stdin_alloc);
+			stdin_paths[stdin_nr++] = xstrdup(buf.buf);
+			strbuf_reset(&buf);
+		}
+		strbuf_release(&unquoted);
+		strbuf_release(&buf);
+
+		ALLOC_GROW(stdin_paths, stdin_nr + 1, stdin_alloc);
+		stdin_paths[stdin_nr++] = NULL;
+		flags |= PATHSPEC_LITERAL_PATH;
+		parse_pathspec(&pathspec, 0, flags, prefix,
+			       (const char **)stdin_paths);
+
+	} else if (nul_term_line)
+		die(_("-z requires --stdin"));
 
 	unborn = !strcmp(rev, "HEAD") && get_oid("HEAD", &oid);
 	if (unborn) {
@@ -386,6 +431,7 @@ int cmd_reset(int argc, const char **argv, const char *prefix)
 			int flags = quiet ? REFRESH_QUIET : REFRESH_IN_PORCELAIN;
 			if (read_from_tree(&pathspec, &oid, intent_to_add))
 				return 1;
+			the_index.updated_skipworktree = 1;
 			if (!quiet && get_git_work_tree()) {
 				uint64_t t_begin, t_delta_in_ms;
 
@@ -420,7 +466,13 @@ int cmd_reset(int argc, const char **argv, const char *prefix)
 			print_new_head_line(lookup_commit_reference(the_repository, &oid));
 	}
 	if (!pathspec.nr)
-		remove_branch_state(the_repository);
+		remove_branch_state(the_repository, 0);
+
+	if (stdin_paths) {
+		while (stdin_nr)
+			free(stdin_paths[--stdin_nr]);
+		free(stdin_paths);
+	}
 
 	return update_ref_status;
 }

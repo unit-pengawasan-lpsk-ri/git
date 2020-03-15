@@ -233,6 +233,129 @@ test_merge () {
 	git tag "$1"
 }
 
+# Efficiently create <nr> commits, each with a unique number (from 1 to <nr>
+# by default) in the commit message.
+#
+# Usage: test_commit_bulk [options] <nr>
+#   -C <dir>:
+#	Run all git commands in directory <dir>
+#   --ref=<n>:
+#	ref on which to create commits (default: HEAD)
+#   --start=<n>:
+#	number commit messages from <n> (default: 1)
+#   --message=<msg>:
+#	use <msg> as the commit mesasge (default: "commit %s")
+#   --filename=<fn>:
+#	modify <fn> in each commit (default: %s.t)
+#   --contents=<string>:
+#	place <string> in each file (default: "content %s")
+#   --id=<string>:
+#	shorthand to use <string> and %s in message, filename, and contents
+#
+# The message, filename, and contents strings are evaluated by printf, with the
+# first "%s" replaced by the current commit number. So you can do:
+#
+#   test_commit_bulk --filename=file --contents="modification %s"
+#
+# to have every commit touch the same file, but with unique content.
+#
+test_commit_bulk () {
+	tmpfile=.bulk-commit.input
+	indir=.
+	ref=HEAD
+	n=1
+	message='commit %s'
+	filename='%s.t'
+	contents='content %s'
+	while test $# -gt 0
+	do
+		case "$1" in
+		-C)
+			indir=$2
+			shift
+			;;
+		--ref=*)
+			ref=${1#--*=}
+			;;
+		--start=*)
+			n=${1#--*=}
+			;;
+		--message=*)
+			message=${1#--*=}
+			;;
+		--filename=*)
+			filename=${1#--*=}
+			;;
+		--contents=*)
+			contents=${1#--*=}
+			;;
+		--id=*)
+			message="${1#--*=} %s"
+			filename="${1#--*=}-%s.t"
+			contents="${1#--*=} %s"
+			;;
+		-*)
+			BUG "invalid test_commit_bulk option: $1"
+			;;
+		*)
+			break
+			;;
+		esac
+		shift
+	done
+	total=$1
+
+	add_from=
+	if git -C "$indir" rev-parse --verify "$ref"
+	then
+		add_from=t
+	fi
+
+	while test "$total" -gt 0
+	do
+		test_tick &&
+		echo "commit $ref"
+		printf 'author %s <%s> %s\n' \
+			"$GIT_AUTHOR_NAME" \
+			"$GIT_AUTHOR_EMAIL" \
+			"$GIT_AUTHOR_DATE"
+		printf 'committer %s <%s> %s\n' \
+			"$GIT_COMMITTER_NAME" \
+			"$GIT_COMMITTER_EMAIL" \
+			"$GIT_COMMITTER_DATE"
+		echo "data <<EOF"
+		printf "$message\n" $n
+		echo "EOF"
+		if test -n "$add_from"
+		then
+			echo "from $ref^0"
+			add_from=
+		fi
+		printf "M 644 inline $filename\n" $n
+		echo "data <<EOF"
+		printf "$contents\n" $n
+		echo "EOF"
+		echo
+		n=$((n + 1))
+		total=$((total - 1))
+	done >"$tmpfile"
+
+	git -C "$indir" \
+	    -c fastimport.unpacklimit=0 \
+	    fast-import <"$tmpfile" || return 1
+
+	# This will be left in place on failure, which may aid debugging.
+	rm -f "$tmpfile"
+
+	# If we updated HEAD, then be nice and update the index and working
+	# tree, too.
+	if test "$ref" = "HEAD"
+	then
+		git -C "$indir" checkout -f HEAD || return 1
+	fi
+
+}
+
 # This function helps systems where core.filemode=false is set.
 # Use it instead of plain 'chmod +x' to set or unset the executable bit
 # of a file in the working directory and add it to the index.
@@ -309,6 +432,26 @@ test_unset_prereq () {
 }
 
 test_set_prereq () {
+	if test -n "$GIT_TEST_FAIL_PREREQS_INTERNAL"
+	then
+		case "$1" in
+		# The "!" case is handled below with
+		# test_unset_prereq()
+		!*)
+			;;
+		# (Temporary?) whitelist of things we can't easily
+		# pretend not to support
+		SYMLINKS)
+			;;
+		# Inspecting whether GIT_TEST_FAIL_PREREQS is on
+		# should be unaffected.
+		FAIL_PREREQS)
+			;;
+		*)
+			return
+		esac
+	fi
+
 	case "$1" in
 	!*)
 		test_unset_prereq "${1#!}"
@@ -760,7 +903,7 @@ test_expect_code () {
 # - not all diff versions understand "-u"
 
 test_cmp() {
-	$GIT_TEST_CMP "$@"
+	GIT_ALLOC_LIMIT=0 $GIT_TEST_CMP "$@"
 }
 
 # Check that the given config key has the expected value.
@@ -888,6 +1031,21 @@ test_cmp_rev () {
 	fi
 }
 
+# Compare paths respecting core.ignoreCase
+test_cmp_fspath () {
+	if test "x$1" = "x$2"
+	then
+		return 0
+	fi
+
+	if test true != "$(git config --get --type=bool core.ignorecase)"
+	then
+		return 1
+	fi
+
+	test "x$(echo "$1" | tr A-Z a-z)" =  "x$(echo "$2" | tr A-Z a-z)"
+}
+
 # Print a sequence of integers in increasing order, either with
 # two arguments (start and end):
 #
@@ -943,6 +1101,34 @@ test_when_finished () {
 		} && (exit \"\$eval_ret\"); eval_ret=\$?; $test_cleanup"
 }
 
+# This function can be used to schedule some commands to be run
+# unconditionally at the end of the test script, e.g. to stop a daemon:
+#
+#	test_expect_success 'test git daemon' '
+#		git daemon &
+#		daemon_pid=$! &&
+#		test_atexit 'kill $daemon_pid' &&
+#		hello world
+#	'
+#
+# The commands will be executed before the trash directory is removed,
+# i.e. the atexit commands will still be able to access any pidfiles or
+# socket files.
+#
+# Note that these commands will be run even when a test script run
+# with '--immediate' fails.  Be careful with your atexit commands to
+# minimize any changes to the failed state.
+
+test_atexit () {
+	# We cannot detect when we are in a subshell in general, but by
+	# doing so on Bash is better than nothing (the test will
+	# silently pass on other shells).
+	test "${BASH_SUBSHELL-0}" = 0 ||
+	error "bug in test script: test_atexit does nothing in a subshell"
+	test_atexit_cleanup="{ $*
+		} && (exit \"\$eval_ret\"); eval_ret=\$?; $test_atexit_cleanup"
+}
+
 # Most tests can use the created repository, but some may need to create more.
 # Usage: test_create_repo <directory>
 test_create_repo () {
@@ -987,128 +1173,20 @@ perl () {
 	command "$PERL_PATH" "$@" 2>&7
 } 7>&2 2>&4
 
-# Is the value one of the various ways to spell a boolean true/false?
-test_normalize_bool () {
-	git -c magic.variable="$1" config --bool magic.variable 2>/dev/null
-}
-
-# Given a variable $1, normalize the value of it to one of "true",
-# "false", or "auto" and store the result to it.
-#
-#     test_tristate GIT_TEST_HTTPD
-#
-# A variable set to an empty string is set to 'false'.
-# A variable set to 'false' or 'auto' keeps its value.
-# Anything else is set to 'true'.
-# An unset variable defaults to 'auto'.
-#
-# The last rule is to allow people to set the variable to an empty
-# string and export it to decline testing the particular feature
-# for versions both before and after this change.  We used to treat
-# both unset and empty variable as a signal for "do not test" and
-# took any non-empty string as "please test".
-
-test_tristate () {
-	if eval "test x\"\${$1+isset}\" = xisset"
-	then
-		# explicitly set
-		eval "
-			case \"\$$1\" in
-			'')	$1=false ;;
-			auto)	;;
-			*)	$1=\$(test_normalize_bool \$$1 || echo true) ;;
-			esac
-		"
-	else
-		eval "$1=auto"
-	fi
-}
-
 # Exit the test suite, either by skipping all remaining tests or by
-# exiting with an error. If "$1" is "auto", we then we assume we were
-# opportunistically trying to set up some tests and we skip. If it is
-# "true", then we report a failure.
+# exiting with an error. If our prerequisite variable $1 falls back
+# on a default assume we were opportunistically trying to set up some
+# tests and we skip. If it is explicitly "true", then we report a failure.
 #
 # The error/skip message should be given by $2.
 #
 test_skip_or_die () {
-	case "$1" in
-	auto)
+	if ! git env--helper --type=bool --default=false --exit-code $1
+	then
 		skip_all=$2
 		test_done
-		;;
-	true)
-		error "$2"
-		;;
-	*)
-		error "BUG: test tristate is '$1' (real error: $2)"
-	esac
-}
-
-# The following mingw_* functions obey POSIX shell syntax, but are actually
-# bash scripts, and are meant to be used only with bash on Windows.
-
-# A test_cmp function that treats LF and CRLF equal and avoids to fork
-# diff when possible.
-mingw_test_cmp () {
-	# Read text into shell variables and compare them. If the results
-	# are different, use regular diff to report the difference.
-	local test_cmp_a= test_cmp_b=
-
-	# When text came from stdin (one argument is '-') we must feed it
-	# to diff.
-	local stdin_for_diff=
-
-	# Since it is difficult to detect the difference between an
-	# empty input file and a failure to read the files, we go straight
-	# to diff if one of the inputs is empty.
-	if test -s "$1" && test -s "$2"
-	then
-		# regular case: both files non-empty
-		mingw_read_file_strip_cr_ test_cmp_a <"$1"
-		mingw_read_file_strip_cr_ test_cmp_b <"$2"
-	elif test -s "$1" && test "$2" = -
-	then
-		# read 2nd file from stdin
-		mingw_read_file_strip_cr_ test_cmp_a <"$1"
-		mingw_read_file_strip_cr_ test_cmp_b
-		stdin_for_diff='<<<"$test_cmp_b"'
-	elif test "$1" = - && test -s "$2"
-	then
-		# read 1st file from stdin
-		mingw_read_file_strip_cr_ test_cmp_a
-		mingw_read_file_strip_cr_ test_cmp_b <"$2"
-		stdin_for_diff='<<<"$test_cmp_a"'
 	fi
-	test -n "$test_cmp_a" &&
-	test -n "$test_cmp_b" &&
-	test "$test_cmp_a" = "$test_cmp_b" ||
-	eval "diff -u \"\$@\" $stdin_for_diff"
-}
-
-# $1 is the name of the shell variable to fill in
-mingw_read_file_strip_cr_ () {
-	# Read line-wise using LF as the line separator
-	# and use IFS to strip CR.
-	local line
-	while :
-	do
-		if IFS=$'\r' read -r -d $'\n' line
-		then
-			# good
-			line=$line$'\n'
-		else
-			# we get here at EOF, but also if the last line
-			# was not terminated by LF; in the latter case,
-			# some text was read
-			if test -z "$line"
-			then
-				# EOF, really
-				break
-			fi
-		fi
-		eval "$1=\$$1\$line"
-	done
+	error "$2"
 }
 
 # Like "env FOO=BAR some-program", but run inside a subshell, which means
@@ -1211,6 +1289,12 @@ depacketize () {
 	'
 }
 
+# Converts base-16 data into base-8. The output is given as a sequence of
+# escaped octals, suitable for consumption by 'printf'.
+hex2oct () {
+	perl -ne 'printf "\\%03o", hex for /../g'
+}
+
 # Set the hash algorithm in use to $1.  Only useful when testing the testsuite.
 test_set_hash () {
 	test_hash_algo="$1"
@@ -1278,6 +1362,13 @@ test_oid () {
 		BUG "undefined key '$1'"
 	fi &&
 	eval "printf '%s' \"\${$var}\""
+}
+
+# Insert a slash into an object ID so it can be used to reference a location
+# under ".git/objects".  For example, "deadbeef..." becomes "de/adbeef..".
+test_oid_to_path () {
+	local basename=${1#??}
+	echo "${1%$basename}/$basename"
 }
 
 # Choose a port number based on the test script's number and store it in

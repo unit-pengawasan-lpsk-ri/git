@@ -182,6 +182,13 @@ test_expect_success 'server-options are sent when using ls-remote' '
 	grep "server-option=world" log
 '
 
+test_expect_success 'warn if using server-option with ls-remote with legacy protocol' '
+	test_must_fail env GIT_TEST_PROTOCOL_VERSION=0 git -c protocol.version=0 \
+		ls-remote -o hello -o world "file://$(pwd)/file_parent" master 2>err &&
+
+	test_i18ngrep "see protocol.version in" err &&
+	test_i18ngrep "server options require protocol version 2 or later" err
+'
 
 test_expect_success 'clone with file:// using protocol v2' '
 	test_when_finished "rm -f log" &&
@@ -249,6 +256,40 @@ test_expect_success 'server-options are sent when fetching' '
 
 	grep "server-option=hello" log &&
 	grep "server-option=world" log
+'
+
+test_expect_success 'warn if using server-option with fetch with legacy protocol' '
+	test_when_finished "rm -rf temp_child" &&
+
+	git init temp_child &&
+
+	test_must_fail env GIT_TEST_PROTOCOL_VERSION=0 git -C temp_child -c protocol.version=0 \
+		fetch -o hello -o world "file://$(pwd)/file_parent" master 2>err &&
+
+	test_i18ngrep "see protocol.version in" err &&
+	test_i18ngrep "server options require protocol version 2 or later" err
+'
+
+test_expect_success 'server-options are sent when cloning' '
+	test_when_finished "rm -rf log myclone" &&
+
+	GIT_TRACE_PACKET="$(pwd)/log" git -c protocol.version=2 \
+		clone --server-option=hello --server-option=world \
+		"file://$(pwd)/file_parent" myclone &&
+
+	grep "server-option=hello" log &&
+	grep "server-option=world" log
+'
+
+test_expect_success 'warn if using server-option with clone with legacy protocol' '
+	test_when_finished "rm -rf myclone" &&
+
+	test_must_fail env GIT_TEST_PROTOCOL_VERSION=0 git -c protocol.version=0 \
+		clone --server-option=hello --server-option=world \
+		"file://$(pwd)/file_parent" myclone 2>err &&
+
+	test_i18ngrep "see protocol.version in" err &&
+	test_i18ngrep "server options require protocol version 2 or later" err
 '
 
 test_expect_success 'upload-pack respects config using protocol v2' '
@@ -359,12 +400,13 @@ test_expect_success 'even with handcrafted request, filter does not work if not 
 	0000
 	EOF
 
-	test_must_fail git -C server serve --stateless-rpc <in >/dev/null 2>err &&
+	test_must_fail test-tool -C server serve-v2 --stateless-rpc \
+		<in >/dev/null 2>err &&
 	grep "unexpected line: .filter blob:none." err &&
 
 	# Exercise to ensure that if advertised, filter works
 	git -C server config uploadpack.allowfilter 1 &&
-	git -C server serve --stateless-rpc <in >/dev/null
+	test-tool -C server serve-v2 --stateless-rpc <in >/dev/null
 '
 
 test_expect_success 'default refspec is used to filter ref when fetchcing' '
@@ -457,10 +499,7 @@ test_expect_success 'upload-pack respects client shallows' '
 
 	# Add extra commits to the client so that the whole fetch takes more
 	# than 1 request (due to negotiation)
-	for i in $(test_seq 1 32)
-	do
-		test_commit -C client c$i
-	done &&
+	test_commit_bulk -C client --id=c 32 &&
 
 	git -C server checkout -b newbranch base &&
 	test_commit -C server client_wants &&
@@ -669,10 +708,7 @@ test_expect_success 'when server does not send "ready", expect FLUSH' '
 	# Create many commits to extend the negotiation phase across multiple
 	# requests, so that the server does not send "ready" in the first
 	# request.
-	for i in $(test_seq 1 32)
-	do
-		test_commit -C http_child c$i
-	done &&
+	test_commit_bulk -C http_child --id=c 32 &&
 
 	# After the acknowledgments section, pretend that a DELIM
 	# (0001) was sent instead of a FLUSH (0000).
@@ -686,7 +722,5 @@ test_expect_success 'when server does not send "ready", expect FLUSH' '
 	! grep "fetch< .*ready" log &&
 	test_i18ngrep "expected no other sections to be sent after no .ready." err
 '
-
-stop_httpd
 
 test_done

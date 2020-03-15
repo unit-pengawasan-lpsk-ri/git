@@ -708,12 +708,21 @@ do
 	# file with scheme
 	for p in file
 	do
-		test_expect_success "fetch-pack --diag-url $p://$h/$r" '
+		test_expect_success !MINGW "fetch-pack --diag-url $p://$h/$r" '
 			check_prot_path $p://$h/$r $p "/$r"
 		'
+		test_expect_success MINGW "fetch-pack --diag-url $p://$h/$r" '
+			check_prot_path $p://$h/$r $p "//$h/$r"
+		'
+		test_expect_success MINGW "fetch-pack --diag-url $p:///$r" '
+			check_prot_path $p:///$r $p "/$r"
+		'
 		# No "/~" -> "~" conversion for file
-		test_expect_success "fetch-pack --diag-url $p://$h/~$r" '
+		test_expect_success !MINGW "fetch-pack --diag-url $p://$h/~$r" '
 			check_prot_path $p://$h/~$r $p "/~$r"
+		'
+		test_expect_success MINGW "fetch-pack --diag-url $p://$h/~$r" '
+			check_prot_path $p://$h/~$r $p "//$h/~$r"
 		'
 	done
 	# file without scheme
@@ -919,8 +928,5 @@ start_httpd
 test_expect_success 'fetch with --filter=blob:limit=0 and HTTP' '
 	fetch_filter_blob_limit_zero "$HTTPD_DOCUMENT_ROOT_PATH/server" "$HTTPD_URL/smart/server"
 '
-
-stop_httpd
-
 
 test_done

@@ -280,7 +280,7 @@ static int add_one_path(const struct cache_entry *old, const char *path, int len
 	memcpy(ce->name, path, len);
 	ce->ce_flags = create_ce_flags(0);
 	ce->ce_namelen = len;
-	fill_stat_cache_info(ce, st);
+	fill_stat_cache_info(&the_index, ce, st);
 	ce->ce_mode = ce_mode_from_stat(old, st->st_mode);
 
 	if (index_path(&the_index, &ce->oid, path, st,
@@ -597,11 +597,11 @@ static struct cache_entry *read_one_ent(const char *which,
 					struct object_id *ent, const char *path,
 					int namelen, int stage)
 {
-	unsigned mode;
+	unsigned short mode;
 	struct object_id oid;
 	struct cache_entry *ce;
 
-	if (get_tree_entry(ent, path, &oid, &mode)) {
+	if (get_tree_entry(the_repository, ent, path, &oid, &mode)) {
 		if (which)
 			error("%s: not in %s branch.", path, which);
 		return NULL;
@@ -724,7 +724,7 @@ static int do_unresolve(int ac, const char **av,
 }
 
 static int do_reupdate(int ac, const char **av,
-		       const char *prefix, int prefix_length)
+		       const char *prefix)
 {
 	/* Read HEAD and run update-index on paths that are
 	 * merged and already different between index and HEAD.
@@ -940,8 +940,7 @@ static enum parse_opt_result reupdate_callback(
 
 	/* consume remaining arguments. */
 	setup_work_tree();
-	*has_errors = do_reupdate(ctx->argc, ctx->argv,
-				prefix, prefix ? strlen(prefix) : 0);
+	*has_errors = do_reupdate(ctx->argc, ctx->argv, prefix);
 	if (*has_errors)
 		active_cache_changed = 0;
 
@@ -1081,6 +1080,8 @@ int cmd_update_index(int argc, const char **argv, const char *prefix)
 	entries = read_cache();
 	if (entries < 0)
 		die("cache corrupted");
+
+	the_index.updated_skipworktree = 1;
 
 	/*
 	 * Custom copy of parse_options() because we want to handle

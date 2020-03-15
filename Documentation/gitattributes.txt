@@ -112,7 +112,8 @@ Checking-out and checking-in
 
 These attributes affect how the contents stored in the
 repository are copied to the working tree files when commands
-such as 'git checkout' and 'git merge' run.  They also affect how
+such as 'git switch', 'git checkout'  and 'git merge' run.
+They also affect how
 Git stores the contents you prepare in the working tree in the
 repository upon 'git add' and 'git commit'.
 
@@ -380,6 +381,36 @@ When the attribute `ident` is set for a path, Git replaces
 sign `$` upon checkout.  Any byte sequence that begins with
 `$Id:` and ends with `$` in the worktree file is replaced
 with `$Id$` upon check-in.
+
+
+`symlink`
+^^^^^^^^^
+
+On Windows, symbolic links have a type: a "file symlink" must point at
+a file, and a "directory symlink" must point at a directory. If the
+type of symlink does not match its target, it doesn't work.
+
+Git does not record the type of symlink in the index or in a tree. On
+checkout it'll guess the type, which only works if the target exists
+at the time the symlink is created. This may often not be the case,
+for example when the link points at a directory inside a submodule.
+
+The `symlink` attribute allows you to explicitly set the type of symlink
+to `file` or `dir`, so Git doesn't have to guess. If you have a set of
+symlinks that point at other files, you can do:
+
+------------------------
+*.gif 	symlink=file
+------------------------
+
+To tell Git that a symlink points at a directory, use:
+
+------------------------
+tools_folder 	symlink=dir
+------------------------
+
+The `symlink` attribute is ignored on platforms other than Windows,
+since they don't distinguish between different types of symlinks.
 
 
 `filter`
@@ -819,7 +850,7 @@ patterns are available:
 
 - `java` suitable for source code in the Java language.
 
-- `matlab` suitable for source code in the MATLAB language.
+- `matlab` suitable for source code in the MATLAB and Octave languages.
 
 - `objc` suitable for source code in the Objective-C language.
 
@@ -832,6 +863,8 @@ patterns are available:
 - `python` suitable for source code in the Python language.
 
 - `ruby` suitable for source code in the Ruby language.
+
+- `rust` suitable for source code in the Rust language.
 
 - `tex` suitable for source code for LaTeX documents.
 

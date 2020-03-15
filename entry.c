@@ -289,7 +289,7 @@ static int write_entry(struct cache_entry *ce,
 		if (!has_symlinks || to_tempfile)
 			goto write_file_entry;
 
-		ret = symlink(new_blob, path);
+		ret = create_symlink(state->istate, new_blob, path);
 		free(new_blob);
 		if (ret)
 			return error_errno("unable to create symlink %s", path);
@@ -367,13 +367,16 @@ static int write_entry(struct cache_entry *ce,
 	}
 
 finish:
+	/* Flush cached lstat in fscache after writing to disk. */
+	flush_fscache();
+
 	if (state->refresh_cache) {
 		assert(state->istate);
 		if (!fstat_done)
 			if (lstat(ce->name, &st) < 0)
 				return error_errno("unable to stat just-written file %s",
 						   ce->name);
-		fill_stat_cache_info(ce, &st);
+		fill_stat_cache_info(state->istate, ce, &st);
 		ce->ce_flags |= CE_UPDATE_IN_BASE;
 		mark_fsmonitor_invalid(state->istate, ce);
 		state->istate->cache_changed |= CE_ENTRY_CHANGED;

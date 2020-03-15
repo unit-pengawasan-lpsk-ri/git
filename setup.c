@@ -164,7 +164,8 @@ int check_filename(const char *prefix, const char *arg)
 	die_errno(_("failed to stat '%s'"), arg);
 }
 
-static void NORETURN die_verify_filename(const char *prefix,
+static void NORETURN die_verify_filename(struct repository *r,
+					 const char *prefix,
 					 const char *arg,
 					 int diagnose_misspelt_rev)
 {
@@ -179,7 +180,7 @@ static void NORETURN die_verify_filename(const char *prefix,
 	 * let maybe_die_on_misspelt_object_name() even trigger.
 	 */
 	if (!(arg[0] == ':' && !isalnum(arg[1])))
-		maybe_die_on_misspelt_object_name(arg, prefix);
+		maybe_die_on_misspelt_object_name(r, arg, prefix);
 
 	/* ... or fall back the most general message. */
 	die(_("ambiguous argument '%s': unknown revision or path not in the working tree.\n"
@@ -234,7 +235,7 @@ void verify_filename(const char *prefix,
 		die(_("option '%s' must come before non-option arguments"), arg);
 	if (looks_like_pathspec(arg) || check_filename(prefix, arg))
 		return;
-	die_verify_filename(prefix, arg, diagnose_misspelt_rev);
+	die_verify_filename(the_repository, prefix, arg, diagnose_misspelt_rev);
 }
 
 /*
@@ -796,7 +797,7 @@ static const char *setup_discovered_git_dir(const char *gitdir,
 		set_git_dir(gitdir);
 	inside_git_dir = 0;
 	inside_work_tree = 1;
-	if (offset == cwd->len)
+	if (offset >= cwd->len)
 		return NULL;
 
 	/* Make "offset" point past the '/' (already the case for root dirs) */
@@ -918,7 +919,7 @@ static enum discovery_result setup_git_directory_gently_1(struct strbuf *dir,
 	const char *env_ceiling_dirs = getenv(CEILING_DIRECTORIES_ENVIRONMENT);
 	struct string_list ceiling_dirs = STRING_LIST_INIT_DUP;
 	const char *gitdirenv;
-	int ceil_offset = -1, min_offset = has_dos_drive_prefix(dir->buf) ? 3 : 1;
+	int ceil_offset = -1, min_offset = offset_1st_component(dir->buf);
 	dev_t current_device = 0;
 	int one_filesystem = 1;
 
@@ -945,6 +946,12 @@ static enum discovery_result setup_git_directory_gently_1(struct strbuf *dir,
 
 	if (ceil_offset < 0)
 		ceil_offset = min_offset - 2;
+
+	if (min_offset && min_offset == dir->len &&
+	    !is_dir_sep(dir->buf[min_offset - 1])) {
+		strbuf_addch(dir, '/');
+		min_offset++;
+	}
 
 	/*
 	 * Test in the following order (relative to the dir):

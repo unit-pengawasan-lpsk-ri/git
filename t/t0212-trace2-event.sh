@@ -3,6 +3,11 @@
 test_description='test trace2 facility'
 . ./test-lib.sh
 
+# Turn off any inherited trace2 settings for this test.
+sane_unset GIT_TRACE2 GIT_TRACE2_PERF GIT_TRACE2_EVENT
+sane_unset GIT_TRACE2_BARE
+sane_unset GIT_TRACE2_CONFIG_PARAMS
+
 perl -MJSON::PP -e 0 >/dev/null 2>&1 && test_set_prereq JSON_PP
 
 # Add t/helper directory to PATH so that we can use a relative
@@ -17,11 +22,6 @@ PATH="$TTDIR:$PATH" && export PATH
 # Warning: So you may see extra lines in artifact files when
 # Warning: interactively debugging.
 
-# Turn off any inherited trace2 settings for this test.
-unset GIT_TR2 GIT_TR2_PERF GIT_TR2_EVENT
-unset GIT_TR2_BARE
-unset GIT_TR2_CONFIG_PARAMS
-
 V=$(git version | sed -e 's/^git version //') && export V
 
 # There are multiple trace2 targets: normal, perf, and event.
@@ -29,7 +29,7 @@ V=$(git version | sed -e 's/^git version //') && export V
 # to whatever filtering that target decides to do).
 # Test each target independently.
 #
-# Defer setting GIT_TR2_PERF until the actual command we want to
+# Defer setting GIT_TRACE2_PERF until the actual command we want to
 # test because hidden git and test-tool commands in the test
 # harness can contaminate our output.
 
@@ -42,7 +42,7 @@ V=$(git version | sed -e 's/^git version //') && export V
 
 test_expect_success JSON_PP 'event stream, error event' '
 	test_when_finished "rm trace.event actual expect" &&
-	GIT_TR2_EVENT="$(pwd)/trace.event" test-tool trace2 003error "hello world" "this is a test" &&
+	GIT_TRACE2_EVENT="$(pwd)/trace.event" test-tool trace2 003error "hello world" "this is a test" &&
 	perl "$TEST_DIRECTORY/t0212/parse_events.perl" <trace.event >actual &&
 	sed -e "s/^|//" >expect <<-EOF &&
 	|VAR1 = {
@@ -79,7 +79,7 @@ test_expect_success JSON_PP 'event stream, error event' '
 
 test_expect_success JSON_PP 'event stream, return code 0' '
 	test_when_finished "rm trace.event actual expect" &&
-	GIT_TR2_EVENT="$(pwd)/trace.event" test-tool trace2 004child test-tool trace2 004child test-tool trace2 001return 0 &&
+	GIT_TRACE2_EVENT="$(pwd)/trace.event" test-tool trace2 004child test-tool trace2 004child test-tool trace2 001return 0 &&
 	perl "$TEST_DIRECTORY/t0212/parse_events.perl" <trace.event >actual &&
 	sed -e "s/^|//" >expect <<-EOF &&
 	|VAR1 = {
@@ -168,7 +168,7 @@ test_expect_success JSON_PP 'event stream, list config' '
 	test_when_finished "rm trace.event actual expect" &&
 	git config --local t0212.abc 1 &&
 	git config --local t0212.def "hello world" &&
-	GIT_TR2_EVENT="$(pwd)/trace.event" GIT_TR2_CONFIG_PARAMS="t0212.*" test-tool trace2 001return 0 &&
+	GIT_TRACE2_EVENT="$(pwd)/trace.event" GIT_TRACE2_CONFIG_PARAMS="t0212.*" test-tool trace2 001return 0 &&
 	perl "$TEST_DIRECTORY/t0212/parse_events.perl" <trace.event >actual &&
 	sed -e "s/^|//" >expect <<-EOF &&
 	|VAR1 = {
@@ -201,7 +201,7 @@ test_expect_success JSON_PP 'event stream, list config' '
 
 test_expect_success JSON_PP 'basic trace2_data' '
 	test_when_finished "rm trace.event actual expect" &&
-	GIT_TR2_EVENT="$(pwd)/trace.event" test-tool trace2 006data test_category k1 v1 test_category k2 v2 &&
+	GIT_TRACE2_EVENT="$(pwd)/trace.event" test-tool trace2 006data test_category k1 v1 test_category k2 v2 &&
 	perl "$TEST_DIRECTORY/t0212/parse_events.perl" <trace.event >actual &&
 	sed -e "s/^|//" >expect <<-EOF &&
 	|VAR1 = {
@@ -223,6 +223,38 @@ test_expect_success JSON_PP 'basic trace2_data' '
 	|        "k2":"v2"
 	|      }
 	|    },
+	|    "exit_code":0,
+	|    "hierarchy":"trace2",
+	|    "name":"trace2",
+	|    "version":"$V"
+	|  }
+	|};
+	EOF
+	test_cmp expect actual
+'
+
+# Now test without environment variables and get all Trace2 settings
+# from the global config.
+
+test_expect_success JSON_PP 'using global config, event stream, error event' '
+	test_when_finished "rm trace.event actual expect" &&
+	test_config_global trace2.eventTarget "$(pwd)/trace.event" &&
+	test-tool trace2 003error "hello world" "this is a test" &&
+	perl "$TEST_DIRECTORY/t0212/parse_events.perl" <trace.event >actual &&
+	sed -e "s/^|//" >expect <<-EOF &&
+	|VAR1 = {
+	|  "_SID0_":{
+	|    "argv":[
+	|      "_EXE_",
+	|      "trace2",
+	|      "003error",
+	|      "hello world",
+	|      "this is a test"
+	|    ],
+	|    "errors":[
+	|      "%s",
+	|      "%s"
+	|    ],
 	|    "exit_code":0,
 	|    "hierarchy":"trace2",
 	|    "name":"trace2",

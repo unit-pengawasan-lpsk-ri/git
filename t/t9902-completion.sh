@@ -126,12 +126,7 @@ invalid_variable_name='${foo.bar}'
 
 actual="$TRASH_DIRECTORY/actual"
 
-if test_have_prereq MINGW
-then
-	ROOT="$(pwd -W)"
-else
-	ROOT="$(pwd)"
-fi
+ROOT="$(pwd)"
 
 test_expect_success 'setup for __git_find_repo_path/__gitdir tests' '
 	mkdir -p subdir/subsubdir &&
@@ -1706,7 +1701,7 @@ test_expect_success 'sourcing the completion script clears cached commands' '
 '
 
 test_expect_success 'sourcing the completion script clears cached merge strategies' '
-	GIT_TEST_GETTEXT_POISON= &&
+	GIT_TEST_GETTEXT_POISON=false &&
 	__git_compute_merge_strategies &&
 	verbose test -n "$__git_merge_strategies" &&
 	. "$GIT_BUILD_DIR/contrib/completion/git-completion.bash" &&

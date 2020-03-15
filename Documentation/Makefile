@@ -7,7 +7,10 @@ ARTICLES =
 SP_ARTICLES =
 OBSOLETE_HTML =
 
+-include GIT-EXCLUDED-PROGRAMS
+
 MAN1_TXT += $(filter-out \
+		$(patsubst %,%.txt,$(EXCLUDED_PROGRAMS)) \
 		$(addsuffix .txt, $(ARTICLES) $(SP_ARTICLES)), \
 		$(wildcard git-*.txt))
 MAN1_TXT += git.txt
@@ -73,6 +76,7 @@ SP_ARTICLES += howto/maintain-git
 API_DOCS = $(patsubst %.txt,%,$(filter-out technical/api-index-skel.txt technical/api-index.txt, $(wildcard technical/api-*.txt)))
 SP_ARTICLES += $(API_DOCS)
 
+TECH_DOCS += MyFirstContribution
 TECH_DOCS += SubmittingPatches
 TECH_DOCS += technical/hash-function-transition
 TECH_DOCS += technical/http-protocol

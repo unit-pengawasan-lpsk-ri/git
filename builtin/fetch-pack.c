@@ -5,6 +5,7 @@
 #include "connect.h"
 #include "sha1-array.h"
 #include "protocol.h"
+#include "config.h"
 
 static const char fetch_pack_usage[] =
 "git fetch-pack [--all] [--stdin] [--quiet | -q] [--keep | -k] [--thin] "
@@ -57,6 +58,7 @@ int cmd_fetch_pack(int argc, const char **argv, const char *prefix)
 	struct packet_reader reader;
 	enum protocol_version version;
 
+	git_config(git_default_config, NULL);
 	fetch_if_missing = 0;
 
 	packet_trace_identity("fetch-pack");
@@ -234,7 +236,7 @@ int cmd_fetch_pack(int argc, const char **argv, const char *prefix)
 		BUG("unknown protocol version");
 	}
 
-	ref = fetch_pack(&args, fd, conn, ref, dest, sought, nr_sought,
+	ref = fetch_pack(&args, fd, ref, sought, nr_sought,
 			 &shallow, pack_lockfile_ptr, version);
 	if (pack_lockfile) {
 		printf("lock %s\n", pack_lockfile);

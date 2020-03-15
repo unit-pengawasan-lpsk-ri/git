@@ -98,6 +98,7 @@ struct diff_flags {
 	unsigned stat_with_summary;
 	unsigned suppress_diff_headers;
 	unsigned dual_color_diffed_diffs;
+	unsigned suppress_hunk_header_line_count;
 };
 
 static inline void diff_flags_or(struct diff_flags *a,
@@ -169,7 +170,7 @@ struct diff_options {
 	const char *prefix;
 	int prefix_length;
 	const char *stat_sep;
-	long xdl_opts;
+	int xdl_opts;
 
 	/* see Documentation/diff-options.txt */
 	char **anchors;
@@ -233,6 +234,8 @@ struct diff_options {
 	struct option *parseopts;
 };
 
+unsigned diff_filter_bit(char status);
+
 void diff_emit_submodule_del(struct diff_options *o, const char *line);
 void diff_emit_submodule_add(struct diff_options *o, const char *line);
 void diff_emit_submodule_untracked(struct diff_options *o, const char *path);
@@ -241,6 +244,22 @@ void diff_emit_submodule_header(struct diff_options *o, const char *header);
 void diff_emit_submodule_error(struct diff_options *o, const char *err);
 void diff_emit_submodule_pipethrough(struct diff_options *o,
 				     const char *line, int len);
+
+struct diffstat_t {
+	int nr;
+	int alloc;
+	struct diffstat_file {
+		char *from_name;
+		char *name;
+		char *print_name;
+		const char *comments;
+		unsigned is_unmerged:1;
+		unsigned is_binary:1;
+		unsigned is_renamed:1;
+		unsigned is_interesting:1;
+		uintmax_t added, deleted;
+	} **files;
+};
 
 enum color_diff {
 	DIFF_RESET = 0,
@@ -330,6 +349,9 @@ void diff_change(struct diff_options *,
 		 unsigned dirty_submodule1, unsigned dirty_submodule2);
 
 struct diff_filepair *diff_unmerge(struct diff_options *, const char *path);
+
+void compute_diffstat(struct diff_options *options, struct diffstat_t *diffstat,
+		      struct diff_queue_struct *q);
 
 #define DIFF_SETUP_REVERSE      	1
 #define DIFF_SETUP_USE_SIZE_CACHE	4
@@ -434,11 +456,13 @@ int run_diff_files(struct rev_info *revs, unsigned int option);
 int run_diff_index(struct rev_info *revs, int cached);
 
 int do_diff_cache(const struct object_id *, struct diff_options *);
-int diff_flush_patch_id(struct diff_options *, struct object_id *, int);
+int diff_flush_patch_id(struct diff_options *, struct object_id *, int, int);
+void flush_one_hunk(struct object_id *, git_SHA_CTX *);
 
 int diff_result_code(struct diff_options *, int);
 
-void diff_no_index(struct rev_info *, int, const char **);
+int diff_no_index(struct rev_info *,
+		  int implicit_no_index, int, const char **);
 
 int index_differs_from(struct repository *r, const char *def,
 		       const struct diff_flags *flags,

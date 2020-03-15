@@ -119,7 +119,7 @@ void packet_buf_delim(struct strbuf *buf)
 	strbuf_add(buf, "0001", 4);
 }
 
-void set_packet_header(char *buf, const int size)
+void set_packet_header(char *buf, int size)
 {
 	static char hexchar[] = "0123456789abcdef";
 
@@ -350,16 +350,17 @@ enum packet_read_status packet_read_with_status(int fd, char **src_buffer,
 		return PACKET_READ_EOF;
 	}
 
-	if ((options & PACKET_READ_DIE_ON_ERR_PACKET) &&
-	    starts_with(buffer, "ERR "))
-		die(_("remote error: %s"), buffer + 4);
-
 	if ((options & PACKET_READ_CHOMP_NEWLINE) &&
 	    len && buffer[len-1] == '\n')
 		len--;
 
 	buffer[len] = 0;
 	packet_trace(buffer, len, 0);
+
+	if ((options & PACKET_READ_DIE_ON_ERR_PACKET) &&
+	    starts_with(buffer, "ERR "))
+		die(_("remote error: %s"), buffer + 4);
+
 	*pktlen = len;
 	return PACKET_READ_NORMAL;
 }
